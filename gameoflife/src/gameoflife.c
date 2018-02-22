@@ -1,13 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
+#include <time.h>
 
 unsigned int fieldVector[4];
+unsigned int fieldVectorTemp[4];
 int sizeX = 10;
 int sizeY = 10;
 int INT_SIZE = 32;
 
-void setField(int index) {
+void setField(int index, unsigned int fieldVector[]) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -15,7 +17,7 @@ void setField(int index) {
 	fieldVector[fieldIndex] = vector;
 }
 
-void unsetField(int index) {
+void unsetField(int index, unsigned int fieldVector[]) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -33,7 +35,7 @@ int getField(int index) {
 
 void initField(int sizeX, int sizeY) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
-		unsetField(i);
+		unsetField(i, fieldVector);
 	}
 }
 
@@ -110,28 +112,43 @@ int computeFromNeighbourCount(int neighbours, int current) {
 	return 1; // else stay alive
 }
 
+void copyArray(unsigned int dest[], unsigned int src[]) {
+	for (int i = 0; i < 4; i++) {
+		dest[i] = src[i];
+	}
+}
+
 void cycle() {
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		int neighbours = countNeighbours(i);
 		if (computeFromNeighbourCount(neighbours, getField(i))) {
-			setField(i);
+			setField(i, fieldVectorTemp);
 		} else {
-			unsetField(i);
+			unsetField(i, fieldVectorTemp);
 		}
 	}
+	copyArray(fieldVector, fieldVectorTemp);
 }
 
 int main(void) {
 	initField(sizeX, sizeY);
-	setField(1);
-	setField(12);
-	setField(20);
-	setField(21);
-	setField(22);
+	copyArray(fieldVectorTemp, fieldVector);
+
+	setField(1, fieldVector);
+	setField(12, fieldVector);
+	setField(20, fieldVector);
+	setField(21, fieldVector);
+	setField(22, fieldVector);
+
 	printField();
 
-	for (int i = 0; i < 1; i++) {
+	struct timespec start, stop;
+	for (int i = 0; i < 5; i++) {
+		clock_gettime(CLOCK_MONOTONIC, &start);
 		cycle();
+		clock_gettime(CLOCK_MONOTONIC, &stop);
+		double passed = stop.tv_nsec - start.tv_nsec;
+		printf("Cycle time: %f", passed);
 		printField();
 	}
 	return EXIT_SUCCESS;
