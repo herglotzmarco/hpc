@@ -3,11 +3,9 @@
 #include <omp.h>
 #include <time.h>
 
-unsigned int fieldVector[4];
-unsigned int fieldVectorTemp[4];
-int sizeX = 10;
-int sizeY = 10;
-int INT_SIZE = 32;
+static const int sizeX = 5000;
+static const int sizeY = 1500;
+static const int INT_SIZE = 32;
 
 void setField(int index, unsigned int fieldVector[]) {
 	int fieldIndex = index / INT_SIZE;
@@ -25,7 +23,7 @@ void unsetField(int index, unsigned int fieldVector[]) {
 	fieldVector[fieldIndex] = vector;
 }
 
-int getField(int index) {
+int getField(int index, unsigned int fieldVector[]) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -33,17 +31,17 @@ int getField(int index) {
 	return vector & 1;
 }
 
-void initField(int sizeX, int sizeY) {
+void initField(int sizeX, int sizeY, unsigned int fieldVector[]) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		unsetField(i, fieldVector);
 	}
 }
 
-void printField() {
+void printField(unsigned int fieldVector[]) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		if (i % sizeX == 0)
 			printf("\n");
-		printf("%d ", getField(i));
+		printf("%d ", getField(i, fieldVector));
 	}
 	printf("\n\n-----------------------------------\n");
 }
@@ -67,31 +65,31 @@ int checkIndex(int current, int i) {
 	return bounds && rowBoundsLeft && rowBoundsRight;
 }
 
-int countNeighbours(int index) {
+int countNeighbours(int index, unsigned int fieldVector[]) {
 	int count = 0;
 
 // left and right
-	if (checkIndex(index, index - 1) && getField(index - 1))
+	if (checkIndex(index, index - 1) && getField(index - 1, fieldVector))
 		count++;
-	if (checkIndex(index, index + 1) && getField(index + 1))
+	if (checkIndex(index, index + 1) && getField(index + 1, fieldVector))
 		count++;
 
 // above
 	int row = index - sizeX;
-	if (checkIndex(row, row - 1) && getField(row - 1))
+	if (checkIndex(row, row - 1) && getField(row - 1, fieldVector))
 		count++;
-	if (checkIndex(row, row) && getField(row))
+	if (checkIndex(row, row) && getField(row, fieldVector))
 		count++;
-	if (checkIndex(row, row + 1) && getField(row + 1))
+	if (checkIndex(row, row + 1) && getField(row + 1, fieldVector))
 		count++;
 
 // below
 	row = index + sizeX;
-	if (checkIndex(row, row - 1) && getField(row - 1))
+	if (checkIndex(row, row - 1) && getField(row - 1, fieldVector))
 		count++;
-	if (checkIndex(row, row) && getField(row))
+	if (checkIndex(row, row) && getField(row, fieldVector))
 		count++;
-	if (checkIndex(row, row + 1) && getField(row + 1))
+	if (checkIndex(row, row + 1) && getField(row + 1, fieldVector))
 		count++;
 
 	return count;
@@ -112,27 +110,31 @@ int computeFromNeighbourCount(int neighbours, int current) {
 	return 1; // else stay alive
 }
 
-void copyArray(unsigned int dest[], unsigned int src[]) {
-	for (int i = 0; i < 4; i++) {
+void copyArray(unsigned int dest[], unsigned int src[], int fieldVectorLength) {
+	for (int i = 0; i < fieldVectorLength; i++) {
 		dest[i] = src[i];
 	}
 }
 
-void cycle() {
+void cycle(unsigned int fieldVector[], unsigned int fieldVectorTemp[],
+		int fieldVectorLength) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
-		int neighbours = countNeighbours(i);
-		if (computeFromNeighbourCount(neighbours, getField(i))) {
+		int neighbours = countNeighbours(i, fieldVector);
+		if (computeFromNeighbourCount(neighbours, getField(i, fieldVector))) {
 			setField(i, fieldVectorTemp);
 		} else {
 			unsetField(i, fieldVectorTemp);
 		}
 	}
-	copyArray(fieldVector, fieldVectorTemp);
+	copyArray(fieldVector, fieldVectorTemp, fieldVectorLength);
 }
 
 int main(void) {
-	initField(sizeX, sizeY);
-	copyArray(fieldVectorTemp, fieldVector);
+	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
+	unsigned int fieldVector[fieldVectorLength];
+	unsigned int fieldVectorTemp[fieldVectorLength];
+	initField(sizeX, sizeY, fieldVector);
+	copyArray(fieldVectorTemp, fieldVector, fieldVectorLength);
 
 	setField(1, fieldVector);
 	setField(12, fieldVector);
@@ -140,16 +142,21 @@ int main(void) {
 	setField(21, fieldVector);
 	setField(22, fieldVector);
 
-	printField();
-
-	struct timespec start, stop;
-	for (int i = 0; i < 5; i++) {
+	struct timespec start, end;
+	for (int i = 0; i < 10; i++) {
 		clock_gettime(CLOCK_MONOTONIC, &start);
-		cycle();
-		clock_gettime(CLOCK_MONOTONIC, &stop);
-		double passed = stop.tv_nsec - start.tv_nsec;
-		printf("Cycle time: %f", passed);
-		printField();
+		cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
+		clock_gettime(CLOCK_MONOTONIC, &end);
+
+		double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
+		double elapsedNanos = end.tv_nsec - start.tv_nsec;
+		double totalElapsedNanos = elapsedSeconds + elapsedNanos;
+
+//		printf("elapsed seconds %f\n", elapsedSeconds);
+//		printf("elapsed nanos %f\n", elapsedNanos);
+//		printf("elapsed time total %f\n", totalElapsedNanos);
+
+		printf("Elapsed time during cycle: %fms\n", totalElapsedNanos / 1E6);
 	}
 	return EXIT_SUCCESS;
 }
