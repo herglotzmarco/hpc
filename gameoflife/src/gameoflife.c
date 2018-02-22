@@ -118,6 +118,7 @@ void copyArray(unsigned int dest[], unsigned int src[], int fieldVectorLength) {
 
 void cycle(unsigned int fieldVector[], unsigned int fieldVectorTemp[],
 		int fieldVectorLength) {
+#pragma omp parallel for
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		int neighbours = countNeighbours(i, fieldVector);
 		if (computeFromNeighbourCount(neighbours, getField(i, fieldVector))) {
