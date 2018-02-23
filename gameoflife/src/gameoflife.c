@@ -3,8 +3,8 @@
 #include <omp.h>
 #include <time.h>
 
-static const int sizeX = 10000;
-static const int sizeY = 10000;
+static const int sizeX = 10;
+static const int sizeY = 10;
 static const int INT_SIZE = 32;
 
 typedef unsigned int bitvector;
@@ -34,10 +34,11 @@ int getField(int index, bitvector *fieldVector) {
 }
 
 void printField(bitvector *fieldVector) {
-	for (int i = 0; i < sizeX * sizeY; i++) {
-		if (i % sizeX == 0)
-			printf("\n");
-		printf("%d ", getField(i, fieldVector));
+	for (int col = 0; col < sizeX; col++) {
+		for (int row = 0; row < sizeY; row++) {
+			printf("%d ", getField(row * sizeX + col, fieldVector));
+		}
+		printf("\n");
 	}
 	printf("\n\n-----------------------------------\n");
 }
@@ -61,8 +62,9 @@ int checkIndex(int current, int i) {
 	return bounds && rowBoundsLeft && rowBoundsRight;
 }
 
-int countNeighbours(int index, bitvector *fieldVector) {
+int countNeighbours(int col, int row, bitvector *fieldVector) {
 	int count = 0;
+	int index = row * sizeX + col;
 
 // left and right
 	if (checkIndex(index, index - 1) && getField(index - 1, fieldVector))
@@ -71,21 +73,21 @@ int countNeighbours(int index, bitvector *fieldVector) {
 		count++;
 
 // above
-	int row = index - sizeX;
-	if (checkIndex(row, row - 1) && getField(row - 1, fieldVector))
+	int offset = index - sizeX;
+	if (checkIndex(offset, offset - 1) && getField(offset - 1, fieldVector))
 		count++;
-	if (checkIndex(row, row) && getField(row, fieldVector))
+	if (checkIndex(offset, offset) && getField(offset, fieldVector))
 		count++;
-	if (checkIndex(row, row + 1) && getField(row + 1, fieldVector))
+	if (checkIndex(offset, offset + 1) && getField(offset + 1, fieldVector))
 		count++;
 
 // below
-	row = index + sizeX;
-	if (checkIndex(row, row - 1) && getField(row - 1, fieldVector))
+	offset = index + sizeX;
+	if (checkIndex(offset, offset - 1) && getField(offset - 1, fieldVector))
 		count++;
-	if (checkIndex(row, row) && getField(row, fieldVector))
+	if (checkIndex(offset, offset) && getField(offset, fieldVector))
 		count++;
-	if (checkIndex(row, row + 1) && getField(row + 1, fieldVector))
+	if (checkIndex(offset, offset + 1) && getField(offset + 1, fieldVector))
 		count++;
 
 	return count;
@@ -115,12 +117,15 @@ void swapArray(bitvector **dest, bitvector **src) {
 void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
 		int fieldVectorLength) {
 #pragma omp parallel for
-	for (int i = 0; i < sizeX * sizeY; i++) {
-		int neighbours = countNeighbours(i, fieldVector);
-		if (computeFromNeighbourCount(neighbours, getField(i, fieldVector))) {
-			setField(i, fieldVectorTemp);
-		} else {
-			unsetField(i, fieldVectorTemp);
+	for (int col = 0; col < sizeX; col++) {
+		for (int row = 0; row < sizeY; row++) {
+			int neighbours = countNeighbours(col, row, fieldVector);
+			if (computeFromNeighbourCount(neighbours,
+					getField(row * sizeX + col, fieldVector))) {
+				setField(row * sizeX + col, fieldVectorTemp);
+			} else {
+				unsetField(row * sizeX + col, fieldVectorTemp);
+			}
 		}
 	}
 }
@@ -155,15 +160,17 @@ int main(void) {
 	setField(21, fieldVector);
 	setField(22, fieldVector);
 
+	printField(fieldVector);
+
 	for (int i = 0; i < 5; i++) {
-		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
-				1);
+		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength, 1);
 		swapArray(&fieldVector, &fieldVectorTemp);
+		printField(fieldVector);
 	}
 	for (int i = 0; i < 5; i++) {
-		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
-				2);
+		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength, 2);
 		swapArray(&fieldVector, &fieldVectorTemp);
+		printField(fieldVector);
 	}
 	return EXIT_SUCCESS;
 }
