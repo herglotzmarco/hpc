@@ -3,11 +3,11 @@
 #include <omp.h>
 #include <time.h>
 
-static const int sizeX = 5000;
-static const int sizeY = 1500;
+static const int sizeX = 10000;
+static const int sizeY = 10000;
 static const int INT_SIZE = 32;
 
-void setField(int index, unsigned int fieldVector[]) {
+void setField(int index, unsigned int *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -15,7 +15,7 @@ void setField(int index, unsigned int fieldVector[]) {
 	fieldVector[fieldIndex] = vector;
 }
 
-void unsetField(int index, unsigned int fieldVector[]) {
+void unsetField(int index, unsigned int *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -23,7 +23,7 @@ void unsetField(int index, unsigned int fieldVector[]) {
 	fieldVector[fieldIndex] = vector;
 }
 
-int getField(int index, unsigned int fieldVector[]) {
+int getField(int index, unsigned int *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -31,13 +31,13 @@ int getField(int index, unsigned int fieldVector[]) {
 	return vector & 1;
 }
 
-void initField(int sizeX, int sizeY, unsigned int fieldVector[]) {
+void initField(int sizeX, int sizeY, unsigned int *fieldVector) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		unsetField(i, fieldVector);
 	}
 }
 
-void printField(unsigned int fieldVector[]) {
+void printField(unsigned int *fieldVector) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		if (i % sizeX == 0)
 			printf("\n");
@@ -65,7 +65,7 @@ int checkIndex(int current, int i) {
 	return bounds && rowBoundsLeft && rowBoundsRight;
 }
 
-int countNeighbours(int index, unsigned int fieldVector[]) {
+int countNeighbours(int index, unsigned int *fieldVector) {
 	int count = 0;
 
 // left and right
@@ -110,15 +110,15 @@ int computeFromNeighbourCount(int neighbours, int current) {
 	return 1; // else stay alive
 }
 
-void copyArray(unsigned int dest[], unsigned int src[], int fieldVectorLength) {
+void copyArray(unsigned int *dest, unsigned int *src, int fieldVectorLength) {
 	for (int i = 0; i < fieldVectorLength; i++) {
 		dest[i] = src[i];
 	}
 }
 
-void cycle(unsigned int fieldVector[], unsigned int fieldVectorTemp[],
+void cycle(unsigned int *fieldVector, unsigned int *fieldVectorTemp,
 		int fieldVectorLength) {
-#pragma omp parallel for
+//#pragma omp parallel for
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		int neighbours = countNeighbours(i, fieldVector);
 		if (computeFromNeighbourCount(neighbours, getField(i, fieldVector))) {
@@ -130,10 +130,29 @@ void cycle(unsigned int fieldVector[], unsigned int fieldVectorTemp[],
 	copyArray(fieldVector, fieldVectorTemp, fieldVectorLength);
 }
 
+void doCycleAndMeasureTime(unsigned int *fieldVector,
+		unsigned int *fieldVectorTemp, int fieldVectorLength) {
+	struct timespec start, end;
+	for (int i = 0; i < 10; i++) {
+		clock_gettime(CLOCK_MONOTONIC, &start);
+		cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
+		clock_gettime(CLOCK_MONOTONIC, &end);
+		double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
+		double elapsedNanos = end.tv_nsec - start.tv_nsec;
+		double totalElapsedNanos = elapsedSeconds + elapsedNanos;
+		//		printf("elapsed seconds %f\n", elapsedSeconds);
+		//		printf("elapsed nanos %f\n", elapsedNanos);
+		//		printf("elapsed time total %f\n", totalElapsedNanos);
+		printf("Elapsed time during cycle: %fms\n", totalElapsedNanos / 1E6);
+	}
+}
+
 int main(void) {
 	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
-	unsigned int fieldVector[fieldVectorLength];
-	unsigned int fieldVectorTemp[fieldVectorLength];
+	unsigned int *fieldVector = malloc(
+			fieldVectorLength * sizeof(unsigned int));
+	unsigned int *fieldVectorTemp = malloc(
+			fieldVectorLength * sizeof(unsigned int));
 	initField(sizeX, sizeY, fieldVector);
 	copyArray(fieldVectorTemp, fieldVector, fieldVectorLength);
 
@@ -143,21 +162,6 @@ int main(void) {
 	setField(21, fieldVector);
 	setField(22, fieldVector);
 
-	struct timespec start, end;
-	for (int i = 0; i < 10; i++) {
-		clock_gettime(CLOCK_MONOTONIC, &start);
-		cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
-		clock_gettime(CLOCK_MONOTONIC, &end);
-
-		double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
-		double elapsedNanos = end.tv_nsec - start.tv_nsec;
-		double totalElapsedNanos = elapsedSeconds + elapsedNanos;
-
-//		printf("elapsed seconds %f\n", elapsedSeconds);
-//		printf("elapsed nanos %f\n", elapsedNanos);
-//		printf("elapsed time total %f\n", totalElapsedNanos);
-
-		printf("Elapsed time during cycle: %fms\n", totalElapsedNanos / 1E6);
-	}
+	doCycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength);
 	return EXIT_SUCCESS;
 }
