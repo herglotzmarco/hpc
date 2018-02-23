@@ -7,7 +7,9 @@ static const int sizeX = 10000;
 static const int sizeY = 10000;
 static const int INT_SIZE = 32;
 
-void setField(int index, unsigned int *fieldVector) {
+typedef unsigned int bitvector;
+
+void setField(int index, bitvector *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -15,7 +17,7 @@ void setField(int index, unsigned int *fieldVector) {
 	fieldVector[fieldIndex] = vector;
 }
 
-void unsetField(int index, unsigned int *fieldVector) {
+void unsetField(int index, bitvector *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -23,7 +25,7 @@ void unsetField(int index, unsigned int *fieldVector) {
 	fieldVector[fieldIndex] = vector;
 }
 
-int getField(int index, unsigned int *fieldVector) {
+int getField(int index, bitvector *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
 	int vector = fieldVector[fieldIndex];
@@ -31,13 +33,7 @@ int getField(int index, unsigned int *fieldVector) {
 	return vector & 1;
 }
 
-void initField(int sizeX, int sizeY, unsigned int *fieldVector) {
-	for (int i = 0; i < sizeX * sizeY; i++) {
-		unsetField(i, fieldVector);
-	}
-}
-
-void printField(unsigned int *fieldVector) {
+void printField(bitvector *fieldVector) {
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		if (i % sizeX == 0)
 			printf("\n");
@@ -65,7 +61,7 @@ int checkIndex(int current, int i) {
 	return bounds && rowBoundsLeft && rowBoundsRight;
 }
 
-int countNeighbours(int index, unsigned int *fieldVector) {
+int countNeighbours(int index, bitvector *fieldVector) {
 	int count = 0;
 
 // left and right
@@ -110,13 +106,13 @@ int computeFromNeighbourCount(int neighbours, int current) {
 	return 1; // else stay alive
 }
 
-void copyArray(unsigned int *dest, unsigned int *src, int fieldVectorLength) {
-	for (int i = 0; i < fieldVectorLength; i++) {
-		dest[i] = src[i];
-	}
+void swapArray(bitvector **dest, bitvector **src) {
+	bitvector *temp = *dest;
+	*dest = *src;
+	*src = temp;
 }
 
-void cycle(unsigned int *fieldVector, unsigned int *fieldVectorTemp,
+void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
 		int fieldVectorLength) {
 #pragma omp parallel for
 	for (int i = 0; i < sizeX * sizeY; i++) {
@@ -127,16 +123,17 @@ void cycle(unsigned int *fieldVector, unsigned int *fieldVectorTemp,
 			unsetField(i, fieldVectorTemp);
 		}
 	}
-	copyArray(fieldVector, fieldVectorTemp, fieldVectorLength);
 }
 
-void doCycleAndMeasureTime(unsigned int *fieldVector,
-		unsigned int *fieldVectorTemp, int fieldVectorLength, int threadCount) {
+void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
+		int fieldVectorLength, int threadCount) {
 	omp_set_num_threads(threadCount);
+
 	struct timespec start, end;
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
 	clock_gettime(CLOCK_MONOTONIC, &end);
+
 	double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
 	double elapsedNanos = end.tv_nsec - start.tv_nsec;
 	double totalElapsedNanos = elapsedSeconds + elapsedNanos;
@@ -149,25 +146,24 @@ void doCycleAndMeasureTime(unsigned int *fieldVector,
 
 int main(void) {
 	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
-	unsigned int *fieldVector = malloc(
-			fieldVectorLength * sizeof(unsigned int));
-	unsigned int *fieldVectorTemp = malloc(
-			fieldVectorLength * sizeof(unsigned int));
-	initField(sizeX, sizeY, fieldVector);
-	copyArray(fieldVectorTemp, fieldVector, fieldVectorLength);
+	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
+	bitvector *fieldVectorTemp = calloc(fieldVectorLength, sizeof(bitvector));
 
 	setField(1, fieldVector);
 	setField(12, fieldVector);
 	setField(20, fieldVector);
 	setField(21, fieldVector);
 	setField(22, fieldVector);
+
 	for (int i = 0; i < 5; i++) {
-		doCycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
 				1);
+		swapArray(&fieldVector, &fieldVectorTemp);
 	}
 	for (int i = 0; i < 5; i++) {
-		doCycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
 				2);
+		swapArray(&fieldVector, &fieldVectorTemp);
 	}
 	return EXIT_SUCCESS;
 }
