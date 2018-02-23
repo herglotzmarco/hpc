@@ -118,7 +118,7 @@ void copyArray(unsigned int *dest, unsigned int *src, int fieldVectorLength) {
 
 void cycle(unsigned int *fieldVector, unsigned int *fieldVectorTemp,
 		int fieldVectorLength) {
-//#pragma omp parallel for
+#pragma omp parallel for
 	for (int i = 0; i < sizeX * sizeY; i++) {
 		int neighbours = countNeighbours(i, fieldVector);
 		if (computeFromNeighbourCount(neighbours, getField(i, fieldVector))) {
@@ -131,20 +131,20 @@ void cycle(unsigned int *fieldVector, unsigned int *fieldVectorTemp,
 }
 
 void doCycleAndMeasureTime(unsigned int *fieldVector,
-		unsigned int *fieldVectorTemp, int fieldVectorLength) {
+		unsigned int *fieldVectorTemp, int fieldVectorLength, int threadCount) {
+	omp_set_num_threads(threadCount);
 	struct timespec start, end;
-	for (int i = 0; i < 10; i++) {
-		clock_gettime(CLOCK_MONOTONIC, &start);
-		cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
-		clock_gettime(CLOCK_MONOTONIC, &end);
-		double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
-		double elapsedNanos = end.tv_nsec - start.tv_nsec;
-		double totalElapsedNanos = elapsedSeconds + elapsedNanos;
-		//		printf("elapsed seconds %f\n", elapsedSeconds);
-		//		printf("elapsed nanos %f\n", elapsedNanos);
-		//		printf("elapsed time total %f\n", totalElapsedNanos);
-		printf("Elapsed time during cycle: %fms\n", totalElapsedNanos / 1E6);
-	}
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
+	clock_gettime(CLOCK_MONOTONIC, &end);
+	double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
+	double elapsedNanos = end.tv_nsec - start.tv_nsec;
+	double totalElapsedNanos = elapsedSeconds + elapsedNanos;
+	//		printf("elapsed seconds %f\n", elapsedSeconds);
+	//		printf("elapsed nanos %f\n", elapsedNanos);
+	//		printf("elapsed time total %f\n", totalElapsedNanos);
+	printf("Elapsed time during cycle with %d threads: %fms\n", threadCount,
+			totalElapsedNanos / 1E6);
 }
 
 int main(void) {
@@ -161,7 +161,13 @@ int main(void) {
 	setField(20, fieldVector);
 	setField(21, fieldVector);
 	setField(22, fieldVector);
-
-	doCycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength);
+	for (int i = 0; i < 5; i++) {
+		doCycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+				1);
+	}
+	for (int i = 0; i < 5; i++) {
+		doCycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+				2);
+	}
 	return EXIT_SUCCESS;
 }
