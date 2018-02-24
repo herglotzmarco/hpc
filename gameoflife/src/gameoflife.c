@@ -3,8 +3,8 @@
 #include <omp.h>
 #include <time.h>
 
-static const int sizeX = 100;
-static const int sizeY = 100;
+static const int sizeX = 10;
+static const int sizeY = 10;
 static const int INT_SIZE = 32;
 static const int MAX_THREADS = 2;
 static const int RUNS_PER_THREAD = 10;
@@ -126,8 +126,8 @@ void swapArray(bitvector **dest, bitvector **src) {
 
 void cycleSubdomain(domain d, bitvector *fieldVector,
 		bitvector *fieldVectorTemp) {
-	for (int row = d.rowStart; row <= d.rowEnd; row++) {
-		for (int col = d.colStart; col <= d.colEnd; col++) {
+	for (int row = d.rowStart; row < d.rowEnd; row++) {
+		for (int col = d.colStart; col < d.colEnd; col++) {
 			int neighbours = countNeighbours(col, row, fieldVector);
 			if (computeFromNeighbourCount(neighbours,
 					getField(row * sizeX + col, fieldVector))) {
@@ -139,15 +139,28 @@ void cycleSubdomain(domain d, bitvector *fieldVector,
 	}
 }
 
+void domainDecomposition(domain *domains) {
+	domains[0].rowStart = 0;
+	domains[0].rowEnd = sizeY / 2;
+	domains[0].colStart = 0;
+	domains[0].colEnd = sizeX;
+
+	domains[1].rowStart = sizeY / 2;
+	domains[1].rowEnd = sizeY;
+	domains[1].colStart = 0;
+	domains[1].colEnd = sizeX;
+}
+
 void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
 		int fieldVectorLength) {
-	domain d;
-	d.rowStart = 0;
-	d.rowEnd = sizeX - 1;
-	d.colStart = 0;
-	d.colEnd = sizeY - 1;
+	domain domains[MAX_THREADS];
+	domainDecomposition(domains);
 
-	cycleSubdomain(d, fieldVector, fieldVectorTemp);
+#pragma omp parallel
+	{
+		cycleSubdomain(domains[omp_get_thread_num()], fieldVector,
+				fieldVectorTemp);
+	}
 }
 
 void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
@@ -162,9 +175,6 @@ void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
 	double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
 	double elapsedNanos = end.tv_nsec - start.tv_nsec;
 	double totalElapsedNanos = elapsedSeconds + elapsedNanos;
-	//		printf("elapsed seconds %f\n", elapsedSeconds);
-	//		printf("elapsed nanos %f\n", elapsedNanos);
-	//		printf("elapsed time total %f\n", totalElapsedNanos);
 	printf("Elapsed time during cycle with %d threads: %fms\n", threadCount,
 			totalElapsedNanos / 1E6);
 }
@@ -206,7 +216,7 @@ int main(void) {
 	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
 	bitvector *fieldVectorTemp = calloc(fieldVectorLength, sizeof(bitvector));
 
-	cycleAndMeasureTimeWithoutPrint(fieldVectorLength, fieldVector,
+	cycleAndMeasureTimeWithPrint(fieldVectorLength, fieldVector,
 			fieldVectorTemp);
 
 	free(fieldVector);
