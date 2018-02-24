@@ -19,6 +19,8 @@ struct domain {
 };
 typedef struct domain domain;
 
+
+
 void setField(int index, bitvector *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
 	int vectorIndex = index % INT_SIZE;
@@ -179,6 +181,43 @@ void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
 			totalElapsedNanos / 1E6);
 }
 
+void writeVTK2(int id, bitvector *fieldVector, char prefix[1024], int w, int h) {
+  char filename[2048];
+  //int x,y;
+
+  int offsetX=0;
+  int offsetY=0;
+  float deltax=1.0;
+  //float deltay=1.0;
+  long  nxy = w * h * sizeof(float);
+
+  snprintf(filename, sizeof(filename), "%s%d%s", prefix,id, ".vti");
+  FILE* fp = fopen(filename, "w");
+
+  fprintf(fp, "<?xml version=\"1.0\"?>\n");
+  fprintf(fp, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
+  fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX, offsetX + w, offsetY, offsetY + h, 0, 0, deltax, deltax, 0.0);
+  fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
+  fprintf(fp, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
+  fprintf(fp, "</CellData>\n");
+  fprintf(fp, "</ImageData>\n");
+  fprintf(fp, "<AppendedData encoding=\"raw\">\n");
+  fprintf(fp, "_");
+  fwrite((unsigned char*)&nxy, sizeof(long), 1, fp);
+
+  for (int col = 0; col < sizeX; col++) {
+  		for (int row = 0; row < sizeY; row++) {
+  			float value = getField(row * sizeX + col, fieldVector);
+  			fwrite((unsigned char*)&value, sizeof(float), 1, fp);
+  		}
+  		printf("\n");
+  	}
+
+  fprintf(fp, "\n</AppendedData>\n");
+  fprintf(fp, "</VTKFile>\n");
+  fclose(fp);
+}
+
 void cycleAndMeasureTimeWithoutPrint(int fieldVectorLength,
 		bitvector *fieldVector, bitvector *fieldVectorTemp) {
 	for (int threads = 1; threads <= MAX_THREADS; threads++) {
@@ -208,6 +247,7 @@ void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
 			printField(fieldVector);
 		}
 		printf("\n");
+	    writeVTK2(threads, fieldVector,"gol", sizeX, sizeY);
 	}
 }
 
