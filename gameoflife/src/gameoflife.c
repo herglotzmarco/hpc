@@ -3,8 +3,8 @@
 #include <omp.h>
 #include <time.h>
 
-static const int sizeX = 10;
-static const int sizeY = 10;
+static const int sizeX = 3000;
+static const int sizeY = 3000;
 static const int INT_SIZE = 32;
 static const int MAX_THREADS = 2;
 static const int RUNS_PER_THREAD = 10;
@@ -50,7 +50,7 @@ void printField(bitvector *fieldVector) {
 		}
 		printf("\n");
 	}
-	printf("\n\n-----------------------------------\n");
+	printf("\n-----------------------------------\n");
 }
 
 int checkIndex(int current, int i) {
@@ -125,74 +125,82 @@ void swapArray(bitvector **dest, bitvector **src) {
 }
 
 void cycleSubdomain(domain d, bitvector *fieldVector,
-		bitvector *fieldVectorTemp) {
+		bitvector *nextFieldVector) {
 	for (int row = d.rowStart; row < d.rowEnd; row++) {
 		for (int col = d.colStart; col < d.colEnd; col++) {
 			int neighbours = countNeighbours(col, row, fieldVector);
 			if (computeFromNeighbourCount(neighbours,
 					getField(row * sizeX + col, fieldVector))) {
-				setField(row * sizeX + col, fieldVectorTemp);
+				setField(row * sizeX + col, nextFieldVector);
 			} else {
-				unsetField(row * sizeX + col, fieldVectorTemp);
+				unsetField(row * sizeX + col, nextFieldVector);
 			}
 		}
 	}
 }
 
-void domainDecomposition(domain *domains) {
-	domains[0].rowStart = 0;
-	domains[0].rowEnd = sizeY / 2;
-	domains[0].colStart = 0;
-	domains[0].colEnd = sizeX;
-
-	domains[1].rowStart = sizeY / 2;
-	domains[1].rowEnd = sizeY;
-	domains[1].colStart = 0;
-	domains[1].colEnd = sizeX;
-}
-
-void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
-		int fieldVectorLength) {
-	domain domains[MAX_THREADS];
-	domainDecomposition(domains);
-
+void cycle(bitvector *fieldVector, bitvector *nextFieldVector,
+		int fieldVectorLength, domain *domains) {
 #pragma omp parallel
 	{
+		printf("Thread %d starting subdomain\n", omp_get_thread_num());
 		cycleSubdomain(domains[omp_get_thread_num()], fieldVector,
-				fieldVectorTemp);
+				nextFieldVector);
+		printf("Thread %d finished subdomain. Waiting...\n",
+				omp_get_thread_num());
+	}
+	printf("All threads finished and synchronized\n");
+}
+
+void domainDecomposition(domain *domains, int threadCount) {
+	int nextRowStart = 0;
+	int nextColStart = 0;
+
+	for (int i = 0; i < threadCount; i++) {
+		domains[i].rowStart = nextRowStart;
+		domains[i].colStart = nextColStart;
+		domains[i].colEnd = sizeX;
+		if (i == threadCount - 1) {
+			domains[i].rowEnd = sizeY;
+			nextRowStart = domains[i].rowEnd;
+		} else {
+			domains[i].rowEnd = sizeY / threadCount;
+			nextRowStart = domains[i].rowEnd;
+		}
 	}
 }
 
-void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
+void cycleAndMeasureTime(bitvector *fieldVector, bitvector *nextFieldVector,
 		int fieldVectorLength, int threadCount) {
 	omp_set_num_threads(threadCount);
+	domain domains[threadCount];
+	domainDecomposition(domains, threadCount);
 
 	struct timespec start, end;
 	clock_gettime(CLOCK_MONOTONIC, &start);
-	cycle(fieldVector, fieldVectorTemp, fieldVectorLength);
+	cycle(fieldVector, nextFieldVector, fieldVectorLength, domains);
 	clock_gettime(CLOCK_MONOTONIC, &end);
 
 	double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
 	double elapsedNanos = end.tv_nsec - start.tv_nsec;
 	double totalElapsedNanos = elapsedSeconds + elapsedNanos;
-	printf("Elapsed time during cycle with %d threads: %fms\n", threadCount,
+	printf("Elapsed time during cycle with %d threads: %fms\n\n", threadCount,
 			totalElapsedNanos / 1E6);
 }
 
 void cycleAndMeasureTimeWithoutPrint(int fieldVectorLength,
-		bitvector *fieldVector, bitvector *fieldVectorTemp) {
+		bitvector *fieldVector, bitvector *nextFieldVector) {
 	for (int threads = 1; threads <= MAX_THREADS; threads++) {
 		for (int i = 0; i < RUNS_PER_THREAD; i++) {
-			cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+			cycleAndMeasureTime(fieldVector, nextFieldVector, fieldVectorLength,
 					threads);
-			swapArray(&fieldVector, &fieldVectorTemp);
+			swapArray(&fieldVector, &nextFieldVector);
 		}
-		printf("\n");
 	}
 }
 
 void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
-		bitvector *fieldVectorTemp) {
+		bitvector *nextFieldVector) {
 	setField(1, fieldVector);
 	setField(12, fieldVector);
 	setField(20, fieldVector);
@@ -202,24 +210,23 @@ void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
 
 	for (int threads = 1; threads <= MAX_THREADS; threads++) {
 		for (int i = 0; i < RUNS_PER_THREAD; i++) {
-			cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+			cycleAndMeasureTime(fieldVector, nextFieldVector, fieldVectorLength,
 					threads);
-			swapArray(&fieldVector, &fieldVectorTemp);
+			swapArray(&fieldVector, &nextFieldVector);
 			printField(fieldVector);
 		}
-		printf("\n");
 	}
 }
 
 int main(void) {
 	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
 	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
-	bitvector *fieldVectorTemp = calloc(fieldVectorLength, sizeof(bitvector));
+	bitvector *nextFieldVector = calloc(fieldVectorLength, sizeof(bitvector));
 
-	cycleAndMeasureTimeWithPrint(fieldVectorLength, fieldVector,
-			fieldVectorTemp);
+	cycleAndMeasureTimeWithoutPrint(fieldVectorLength, fieldVector,
+			nextFieldVector);
 
 	free(fieldVector);
-	free(fieldVectorTemp);
+	free(nextFieldVector);
 	return EXIT_SUCCESS;
 }
