@@ -3,9 +3,11 @@
 #include <omp.h>
 #include <time.h>
 
-static const int sizeX = 10;
-static const int sizeY = 10;
+static const int sizeX = 10000;
+static const int sizeY = 10000;
 static const int INT_SIZE = 32;
+static const int MAX_THREADS = 2;
+static const int RUNS_PER_THREAD = 10;
 
 typedef unsigned int bitvector;
 
@@ -116,9 +118,9 @@ void swapArray(bitvector **dest, bitvector **src) {
 
 void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
 		int fieldVectorLength) {
-#pragma omp parallel for
-	for (int col = 0; col < sizeX; col++) {
-		for (int row = 0; row < sizeY; row++) {
+#pragma omp parallel for collapse(2)
+	for (int row = 0; row < sizeY; row++) {
+		for (int col = 0; col < sizeX; col++) {
 			int neighbours = countNeighbours(col, row, fieldVector);
 			if (computeFromNeighbourCount(neighbours,
 					getField(row * sizeX + col, fieldVector))) {
@@ -149,28 +151,46 @@ void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
 			totalElapsedNanos / 1E6);
 }
 
-int main(void) {
-	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
-	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
-	bitvector *fieldVectorTemp = calloc(fieldVectorLength, sizeof(bitvector));
+void cycleAndMeasureTimeWithoutPrint(int fieldVectorLength,
+		bitvector *fieldVector, bitvector *fieldVectorTemp) {
+	for (int threads = 1; threads <= MAX_THREADS; threads++) {
+		for (int i = 0; i < RUNS_PER_THREAD; i++) {
+			cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+					threads);
+			swapArray(&fieldVector, &fieldVectorTemp);
+		}
+		printf("\n");
+	}
+}
 
+void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
+		bitvector *fieldVectorTemp) {
 	setField(1, fieldVector);
 	setField(12, fieldVector);
 	setField(20, fieldVector);
 	setField(21, fieldVector);
 	setField(22, fieldVector);
-
 	printField(fieldVector);
 
-	for (int i = 0; i < 5; i++) {
-		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength, 1);
-		swapArray(&fieldVector, &fieldVectorTemp);
-		printField(fieldVector);
+	for (int threads = 1; threads <= MAX_THREADS; threads++) {
+		for (int i = 0; i < RUNS_PER_THREAD; i++) {
+			cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength,
+					threads);
+			swapArray(&fieldVector, &fieldVectorTemp);
+			printField(fieldVector);
+		}
+		printf("\n");
 	}
-	for (int i = 0; i < 5; i++) {
-		cycleAndMeasureTime(fieldVector, fieldVectorTemp, fieldVectorLength, 2);
-		swapArray(&fieldVector, &fieldVectorTemp);
-		printField(fieldVector);
-	}
+}
+int main(void) {
+	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
+	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
+	bitvector *fieldVectorTemp = calloc(fieldVectorLength, sizeof(bitvector));
+
+	cycleAndMeasureTimeWithoutPrint(fieldVectorLength, fieldVector,
+			fieldVectorTemp);
+
+	free(fieldVector);
+	free(fieldVectorTemp);
 	return EXIT_SUCCESS;
 }
