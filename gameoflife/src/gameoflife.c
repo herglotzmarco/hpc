@@ -3,13 +3,21 @@
 #include <omp.h>
 #include <time.h>
 
-static const int sizeX = 10000;
-static const int sizeY = 10000;
+static const int sizeX = 100;
+static const int sizeY = 100;
 static const int INT_SIZE = 32;
 static const int MAX_THREADS = 2;
 static const int RUNS_PER_THREAD = 10;
 
 typedef unsigned int bitvector;
+
+struct domain {
+	int rowStart;
+	int rowEnd;
+	int colStart;
+	int colEnd;
+};
+typedef struct domain domain;
 
 void setField(int index, bitvector *fieldVector) {
 	int fieldIndex = index / INT_SIZE;
@@ -116,11 +124,10 @@ void swapArray(bitvector **dest, bitvector **src) {
 	*src = temp;
 }
 
-void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
-		int fieldVectorLength) {
-#pragma omp parallel for collapse(2)
-	for (int row = 0; row < sizeY; row++) {
-		for (int col = 0; col < sizeX; col++) {
+void cycleSubdomain(domain d, bitvector *fieldVector,
+		bitvector *fieldVectorTemp) {
+	for (int row = d.rowStart; row <= d.rowEnd; row++) {
+		for (int col = d.colStart; col <= d.colEnd; col++) {
 			int neighbours = countNeighbours(col, row, fieldVector);
 			if (computeFromNeighbourCount(neighbours,
 					getField(row * sizeX + col, fieldVector))) {
@@ -130,6 +137,17 @@ void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
 			}
 		}
 	}
+}
+
+void cycle(bitvector *fieldVector, bitvector *fieldVectorTemp,
+		int fieldVectorLength) {
+	domain d;
+	d.rowStart = 0;
+	d.rowEnd = sizeX - 1;
+	d.colStart = 0;
+	d.colEnd = sizeY - 1;
+
+	cycleSubdomain(d, fieldVector, fieldVectorTemp);
 }
 
 void cycleAndMeasureTime(bitvector *fieldVector, bitvector *fieldVectorTemp,
@@ -182,6 +200,7 @@ void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
 		printf("\n");
 	}
 }
+
 int main(void) {
 	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
 	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
