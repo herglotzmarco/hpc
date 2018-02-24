@@ -1,3 +1,5 @@
+*.o
+*/OpenMP
 .metadata
 RemoteSystemsTempFiles
 .settings
