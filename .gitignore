@@ -1,5 +1,6 @@
 *.o
 *.vti
+*.pvti
 */OpenMP
 .metadata
 RemoteSystemsTempFiles
