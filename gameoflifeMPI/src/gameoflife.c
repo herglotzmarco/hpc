@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <mpi.h>
 
-static const int sizeX = 10;
-static const int sizeY = 10;
-static const int CHUNKS_X = 1;
+static const int sizeX = 20;
+static const int sizeY = 20;
+static const int CHUNKS_X = 4;
 static const int CHUNKS_Y = 1;
 static const int INT_SIZE = 32;
 static const int RUNS_PER_THREAD = 10;
@@ -288,15 +289,23 @@ void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
 	}
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+	MPI_Init(&argc, &argv);
+
 	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
 	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
 	bitvector *nextFieldVector = calloc(fieldVectorLength, sizeof(bitvector));
+
+	int dims = {1};
+	int periodic = {1};
+	MPI_Comm communicator;
+	MPI_Cart_create(MPI_COMM_WORLD, 1, &dims, &periodic, 1, &communicator);
 
 	cycleAndMeasureTimeWithPrint(fieldVectorLength, fieldVector,
 			nextFieldVector);
 
 	free(fieldVector);
 	free(nextFieldVector);
+	MPI_Finalize();
 	return EXIT_SUCCESS;
 }
