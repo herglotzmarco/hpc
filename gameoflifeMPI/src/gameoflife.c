@@ -289,20 +289,29 @@ void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
 	}
 }
 
-int main(int argc, char **argv) {
+void initMPI(int argc, char** argv) {
 	MPI_Init(&argc, &argv);
+	int dims = { CHUNKS_X };
+	int periodic = { 1 };
+	MPI_Comm communicator;
+	MPI_Cart_create(MPI_COMM_WORLD, 1, &dims, &periodic, 1, &communicator);
 
+	int rank;
+	MPI_Comm_rank(communicator, &rank);
+	int rank_left;
+	int rank_right;
+	MPI_Cart_shift(communicator, 0, 1, &rank_left, &rank_right);
+	printf("My rank is %d. My neighbours are %d and %d\n", rank, rank_left, rank_right);
+}
+
+int main(int argc, char **argv) {
 	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
 	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
 	bitvector *nextFieldVector = calloc(fieldVectorLength, sizeof(bitvector));
 
-	int dims = {1};
-	int periodic = {1};
-	MPI_Comm communicator;
-	MPI_Cart_create(MPI_COMM_WORLD, 1, &dims, &periodic, 1, &communicator);
-
-	cycleAndMeasureTimeWithPrint(fieldVectorLength, fieldVector,
-			nextFieldVector);
+	initMPI(argc, argv);
+//	cycleAndMeasureTimeWithPrint(fieldVectorLength, fieldVector,
+//			nextFieldVector);
 
 	free(fieldVector);
 	free(nextFieldVector);
