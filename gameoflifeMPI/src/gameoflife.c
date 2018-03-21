@@ -251,7 +251,7 @@ void cycleAndMeasureTime(int cycleNum, bitvector *fieldVector,
 	domain domains[CHUNKS_X * CHUNKS_Y];
 	domainDecomposition(domains);
 
-	writePVTK(cycleNum, "gol", domains);
+//	writePVTK(cycleNum, "gol", domains);
 
 	struct timespec start, end;
 	clock_gettime(CLOCK_MONOTONIC, &start);
