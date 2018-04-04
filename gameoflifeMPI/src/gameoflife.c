@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <mpi.h>
+#include <stdbool.h>
 
 static const int sizeX = 20;
 static const int sizeY = 20;
@@ -52,6 +53,41 @@ void printField(bitvector *fieldVector) {
 		printf("\n");
 	}
 	printf("\n-----------------------------------\n");
+}
+
+void writeVTK(int t, int thread, bool *field, char prefix[1024], int xleft,
+		int xright, int ytop, int ybottom) {
+	char name[1024] = "\0";
+	sprintf(name, "%s_%02d_%04d.vtk", prefix, thread, t);
+	FILE* outfile = fopen(name, "w");
+
+	/*Write vtk header */
+	fprintf(outfile, "# vtk DataFile Version 3.0\n");
+	fprintf(outfile, "frame %d\n", t);
+	fprintf(outfile, "BINARY\n");
+	fprintf(outfile, "DATASET STRUCTURED_POINTS\n");
+	fprintf(outfile, "DIMENSIONS %d %d %d \n", xright - xleft, ybottom - ytop,
+			1);
+	// paraview weirdness - this gets rid of spaces between the chunks
+	fprintf(outfile, "SPACING %f %f 1.0\n",
+			((double) xright - xleft) / ((double) xright - xleft - 1),
+			((double) ybottom - ytop) / ((double) ybottom - ytop - 1));
+	fprintf(outfile, "ORIGIN %d %d 0\n", xleft, ytop);
+	fprintf(outfile, "POINT_DATA %d\n", (xright - xleft) * (ybottom - ytop));
+	fprintf(outfile, "SCALARS data unsigned_char 1\n");
+	fprintf(outfile, "LOOKUP_TABLE default\n");
+
+//    static_assert(sizeof(bool) == sizeof(char), "bool is char");
+
+	int w = xright - xleft;
+	int h = ybottom - ytop;
+	for (int row = 1; row < h + 1; row++) {
+		for (int col = 1; col < w + 1; col++) {
+			bool value = field[row * (w + 2) + col];
+			fwrite((unsigned char*) &value, sizeof(bool), 1, outfile);
+		}
+	}
+	fclose(outfile);
 }
 
 int checkIndex(int current, int i) {
@@ -140,80 +176,7 @@ void cycleSubdomain(domain d, bitvector *fieldVector,
 	}
 }
 
-void writePVTK(int cycleNum, char prefix[1024], domain* domains) {
 
-	char filename[2048];
-
-	snprintf(filename, sizeof(filename), "%s%s%d%s", prefix, "step", cycleNum,
-			".pvti");
-	FILE* fp = fopen(filename, "w");
-
-	fprintf(fp, "<?xml version=\"1.0\"?>\n");
-	fprintf(fp,
-			"<VTKFile type=\"PImageData\" version=\"0.1\" byte_order=\"LittleEndian\" >\n");
-	fprintf(fp,
-			"<PImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n",
-			0, sizeX, 0, sizeY, 0, 0, 1.0, 1.0, 0.0);
-	fprintf(fp, "<PCellData Scalars=\"%s\">\n", prefix);
-	fprintf(fp,
-			"<PDataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n",
-			prefix);
-	fprintf(fp, "</PCellData>\n");
-
-	for (int piece = 0; piece < CHUNKS_X * CHUNKS_Y; piece++) {
-		fprintf(fp,
-				"<Piece Extent=\"%d %d %d %d 0 0\" Source=\"%s%s%d%s%d%s\"/>",
-				domains[piece].colStart, domains[piece].colEnd,
-				domains[piece].rowStart, domains[piece].rowEnd, prefix, "step",
-				cycleNum, "thread", piece, ".vti");
-	}
-
-	fprintf(fp, "</PImageData>\n");
-	fprintf(fp, "</VTKFile>\n");
-	fclose(fp);
-}
-
-void writeVTK2(int cycleNum, int id, bitvector *fieldVector, char prefix[1024],
-		int w, int h, domain* domains) {
-	char filename[2048];
-	//int x,y;
-
-	long nxy = w * h * sizeof(float);
-
-	snprintf(filename, sizeof(filename), "%s%s%d%s%d%s", prefix, "step",
-			cycleNum, "thread", id, ".vti");
-	FILE* fp = fopen(filename, "w");
-
-	fprintf(fp, "<?xml version=\"1.0\"?>\n");
-	fprintf(fp,
-			"<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
-	fprintf(fp,
-			"<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n",
-			0, w, 0, h, 0, 0, 1.0, 1.0, 0.0);
-	fprintf(fp, "<Piece Extent=\"%d %d %d %d 0 0 \">\n", domains[id].colStart,
-			domains[id].colEnd, domains[id].rowStart, domains[id].rowEnd);
-	fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
-	fprintf(fp,
-			"<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n",
-			prefix);
-	fprintf(fp, "</CellData>\n");
-	fprintf(fp, "</Piece>\n");
-	fprintf(fp, "</ImageData>\n");
-	fprintf(fp, "<AppendedData encoding=\"raw\">\n");
-	fprintf(fp, "_");
-	fwrite((unsigned char*) &nxy, sizeof(long), 1, fp);
-
-	for (int row = domains[id].rowStart; row < domains[id].rowEnd; row++) {
-		for (int col = domains[id].colStart; col < domains[id].colEnd; col++) {
-			float value = getField(row * sizeX + col, fieldVector);
-			fwrite((unsigned char*) &value, sizeof(float), 1, fp);
-		}
-	}
-
-	fprintf(fp, "\n</AppendedData>\n");
-	fprintf(fp, "</VTKFile>\n");
-	fclose(fp);
-}
 
 void cycle(int cycleNum, bitvector *fieldVector, bitvector *nextFieldVector,
 		int fieldVectorLength, domain *domains) {
@@ -228,29 +191,9 @@ void cycle(int cycleNum, bitvector *fieldVector, bitvector *nextFieldVector,
 	printf("All threads finished and synchronized\n");
 }
 
-void domainDecomposition(domain *domains) {
-	for (int y = 0; y < CHUNKS_Y; y++) {
-		for (int x = 0; x < CHUNKS_X; x++) {
-			int pos = y * CHUNKS_X + x;
-			domains[pos].rowStart = y * sizeY / CHUNKS_Y;
-			domains[pos].rowEnd = (y + 1) * sizeY / CHUNKS_Y;
-			domains[pos].colStart = x * sizeX / CHUNKS_X;
-			domains[pos].colEnd = (x + 1) * sizeX / CHUNKS_X;
-
-			if (x == CHUNKS_X - 1) {
-				domains[pos].colEnd = sizeY;
-			}
-			if (y == CHUNKS_Y - 1) {
-				domains[pos].rowEnd = sizeX;
-			}
-		}
-	}
-}
-
 void cycleAndMeasureTime(int cycleNum, bitvector *fieldVector,
 		bitvector *nextFieldVector, int fieldVectorLength) {
 	domain domains[CHUNKS_X * CHUNKS_Y];
-	domainDecomposition(domains);
 
 //	writePVTK(cycleNum, "gol", domains);
 
@@ -301,7 +244,25 @@ void initMPI(int argc, char** argv) {
 	int rank_left;
 	int rank_right;
 	MPI_Cart_shift(communicator, 0, 1, &rank_left, &rank_right);
-	printf("My rank is %d. My neighbours are %d and %d\n", rank, rank_left, rank_right);
+
+	int coords;
+	MPI_Cart_coords(communicator, rank, 1, &coords);
+	int xstart = coords * sizeX / CHUNKS_X;
+	int ystart = 0;
+	int xend = xstart + sizeX / CHUNKS_X;
+	int yend = sizeY;
+
+	printf(
+			"My rank is %d. My neighbours are %d and %d. My coordinates are %d\n",
+			rank, rank_left, rank_right, coords);
+	printf(
+			"I will calculate the area: xstart=%d, xend=%d, ystart=%d, yend=%d\n",
+			xstart, xend, ystart, yend);
+
+	bool *field = calloc((xend - xstart + 2) * (yend - ystart + 2),
+			sizeof(bool));
+	writeVTK(0, rank, field, "", xstart, xend, ystart, yend);
+
 }
 
 int main(int argc, char **argv) {
