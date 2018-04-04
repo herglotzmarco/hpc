@@ -150,9 +150,9 @@ int main(int argc, char **argv) {
 
 	if (rank == 0) {
 		prev[1 * (w + 2) + 2] = true;
-		prev[2 * (w + 2) + 3] = true;
-		prev[3 * (w + 2) + 1] = true;
-		prev[3 * (w + 2) + 2] = true;
+//		prev[2 * (w + 2) + 3] = true;
+//		prev[3 * (w + 2) + 1] = true;
+//		prev[3 * (w + 2) + 2] = true;
 		prev[3 * (w + 2) + 3] = true;
 	}
 
@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
 	for (int cycle = 1; cycle < RUNS_PER_THREAD; cycle++) {
 
 		// calculate
-		evolve(prev, field, w, h);
+		int changes = evolve(prev, field, w, h);
 
 		// output
 		writeVTK(cycle, rank, field, "gol", xstart, xend, ystart, yend);
@@ -187,6 +187,13 @@ int main(int argc, char **argv) {
 		MPI_Irecv(field, 1, borderLeftRec, rank_left, 42, communicator,
 				&requests[3]);
 		MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+
+		int gathered;
+		MPI_Allreduce(&changes, &gathered, 1, MPI_INT,MPI_SUM, communicator);
+
+		if(gathered == 0) {
+			break;
+		}
 
 		swap_vector(&field, &prev);
 	}
