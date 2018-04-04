@@ -7,53 +7,7 @@
 static const int sizeX = 20;
 static const int sizeY = 20;
 static const int CHUNKS_X = 4;
-static const int CHUNKS_Y = 1;
-static const int INT_SIZE = 32;
-static const int RUNS_PER_THREAD = 10;
-
-typedef unsigned int bitvector;
-
-struct domain {
-	int rowStart;
-	int rowEnd;
-	int colStart;
-	int colEnd;
-};
-typedef struct domain domain;
-
-void setField(int index, bitvector *fieldVector) {
-	int fieldIndex = index / INT_SIZE;
-	int vectorIndex = index % INT_SIZE;
-	int vector = fieldVector[fieldIndex];
-	vector = vector | (1 << vectorIndex);
-	fieldVector[fieldIndex] = vector;
-}
-
-void unsetField(int index, bitvector *fieldVector) {
-	int fieldIndex = index / INT_SIZE;
-	int vectorIndex = index % INT_SIZE;
-	int vector = fieldVector[fieldIndex];
-	vector = vector & ~(1 << vectorIndex);
-	fieldVector[fieldIndex] = vector;
-}
-
-int getField(int index, bitvector *fieldVector) {
-	int fieldIndex = index / INT_SIZE;
-	int vectorIndex = index % INT_SIZE;
-	int vector = fieldVector[fieldIndex];
-	vector = vector >> vectorIndex;
-	return vector & 1;
-}
-
-void printField(bitvector *fieldVector) {
-	for (int row = 0; row < sizeY; row++) {
-		for (int col = 0; col < sizeX; col++) {
-			printf("%d ", getField(row * sizeX + col, fieldVector));
-		}
-		printf("\n");
-	}
-	printf("\n-----------------------------------\n");
-}
+static const int RUNS_PER_THREAD = 100;
 
 void writeVTK(int t, int thread, bool *field, char prefix[1024], int xleft,
 		int xright, int ytop, int ybottom) {
@@ -90,149 +44,53 @@ void writeVTK(int t, int thread, bool *field, char prefix[1024], int xleft,
 	fclose(outfile);
 }
 
-int checkIndex(int current, int i) {
-	int bounds = i >= 0 && i < sizeX * sizeY;
-	int rowBoundsRight = current % sizeX == sizeX - 1;
-	if (rowBoundsRight) {
-		rowBoundsRight = rowBoundsRight && i != current + 1;
-	} else {
-		rowBoundsRight = 1;
-	}
-
-	int rowBoundsLeft = current % sizeX == 0;
-	if (rowBoundsLeft) {
-		rowBoundsLeft = rowBoundsLeft && i != current - 1;
-	} else {
-		rowBoundsLeft = 1;
-	}
-
-	return bounds && rowBoundsLeft && rowBoundsRight;
+static inline int INDEX(int x, int y, int w) {
+	return (y + 1) * (w + 2) + x + 1;
 }
 
-int countNeighbours(int col, int row, bitvector *fieldVector) {
-	int count = 0;
-	int index = row * sizeX + col;
+static int evolve(bool *original, bool *next, int w, int h) {
+	int change_counter = 0;
+	for (int y = 0; y < h; ++y) {
+		for (int x = 0; x < w; ++x) {
+			int i = INDEX(x, y, w);
 
-// left and right
-	if (checkIndex(index, index - 1) && getField(index - 1, fieldVector))
-		count++;
-	if (checkIndex(index, index + 1) && getField(index + 1, fieldVector))
-		count++;
-
-// above
-	int offset = index - sizeX;
-	if (checkIndex(offset, offset - 1) && getField(offset - 1, fieldVector))
-		count++;
-	if (checkIndex(offset, offset) && getField(offset, fieldVector))
-		count++;
-	if (checkIndex(offset, offset + 1) && getField(offset + 1, fieldVector))
-		count++;
-
-// below
-	offset = index + sizeX;
-	if (checkIndex(offset, offset - 1) && getField(offset - 1, fieldVector))
-		count++;
-	if (checkIndex(offset, offset) && getField(offset, fieldVector))
-		count++;
-	if (checkIndex(offset, offset + 1) && getField(offset + 1, fieldVector))
-		count++;
-
-	return count;
-}
-
-int computeFromNeighbourCount(int neighbours, int current) {
-	// dead cell
-	if (!current && neighbours == 3)
-		return 1; // come to life
-	if (!current)
-		return 0; // stay dead
-
-	// living cells
-	if (neighbours < 2)
-		return 0; // die of starvation
-	if (neighbours >= 4)
-		return 0; // die of overpopulation
-	return 1; // else stay alive
-}
-
-void swapArray(bitvector **dest, bitvector **src) {
-	bitvector *temp = *dest;
-	*dest = *src;
-	*src = temp;
-}
-
-void cycleSubdomain(domain d, bitvector *fieldVector,
-		bitvector *nextFieldVector) {
-	for (int row = d.rowStart; row < d.rowEnd; row++) {
-		for (int col = d.colStart; col < d.colEnd; col++) {
-			int neighbours = countNeighbours(col, row, fieldVector);
-			if (computeFromNeighbourCount(neighbours,
-					getField(row * sizeX + col, fieldVector))) {
-				setField(row * sizeX + col, nextFieldVector);
-			} else {
-				unsetField(row * sizeX + col, nextFieldVector);
+			// count neighbors
+			int neighborCount = 0;
+			for (int nx = x - 1; nx <= x + 1; nx++) {
+				for (int ny = y - 1; ny <= y + 1; ny++) {
+					if (original[INDEX(nx, ny, w)])
+						neighborCount++;
+				}
 			}
+			if (original[i])
+				neighborCount--;
+
+			if (!original[i] && neighborCount == 3) {
+				// dead cell is resurrected if it has exectly three neighbors
+				next[i] = 1;
+			} else if (original[i]
+					&& (neighborCount == 2 || neighborCount == 3)) {
+				// living cell survives on 2 or three neighbors
+				next[i] = 1;
+			} else {
+				// everything else is dead
+				next[i] = 0;
+			}
+
+			change_counter += (next[i] != original[i]);
 		}
 	}
+
+	return change_counter;
 }
 
-
-
-void cycle(int cycleNum, bitvector *fieldVector, bitvector *nextFieldVector,
-		int fieldVectorLength, domain *domains) {
-	for (int i = 0; i < CHUNKS_X * CHUNKS_Y; i++) {
-		printf(
-				"Domain %d: rowStart: %d, rowEnd: %d, colStart: %d, colEnd: %d\n",
-				i, domains[i].rowStart, domains[i].rowEnd, domains[i].colStart,
-				domains[i].colEnd);
-		cycleSubdomain(domains[i], fieldVector, nextFieldVector);
-//		writeVTK2(cycleNum, i, fieldVector, "gol", sizeX, sizeY, domains);
-	}
-	printf("All threads finished and synchronized\n");
+static inline void swap_vector(bool **a, bool **b) {
+	bool *t = *a;
+	*a = *b;
+	*b = t;
 }
 
-void cycleAndMeasureTime(int cycleNum, bitvector *fieldVector,
-		bitvector *nextFieldVector, int fieldVectorLength) {
-	domain domains[CHUNKS_X * CHUNKS_Y];
-
-//	writePVTK(cycleNum, "gol", domains);
-
-	struct timespec start, end;
-	clock_gettime(CLOCK_MONOTONIC, &start);
-	cycle(cycleNum, fieldVector, nextFieldVector, fieldVectorLength, domains);
-	clock_gettime(CLOCK_MONOTONIC, &end);
-
-	double elapsedSeconds = (end.tv_sec - start.tv_sec) * 1E9;
-	double elapsedNanos = end.tv_nsec - start.tv_nsec;
-	double totalElapsedNanos = elapsedSeconds + elapsedNanos;
-	printf("Elapsed time during cycle: %fms\n\n", totalElapsedNanos / 1E6);
-}
-
-void cycleAndMeasureTimeWithoutPrint(int fieldVectorLength,
-		bitvector *fieldVector, bitvector *nextFieldVector) {
-	for (int i = 0; i < RUNS_PER_THREAD; i++) {
-		cycleAndMeasureTime(i, fieldVector, nextFieldVector, fieldVectorLength);
-		swapArray(&fieldVector, &nextFieldVector);
-	}
-}
-
-void cycleAndMeasureTimeWithPrint(int fieldVectorLength, bitvector *fieldVector,
-		bitvector *nextFieldVector) {
-	setField(0 * sizeY + 1, fieldVector);
-	setField(1 * sizeY + 2, fieldVector);
-	setField(2 * sizeY + 0, fieldVector);
-	setField(2 * sizeY + 1, fieldVector);
-	setField(2 * sizeY + 2, fieldVector);
-	printField(fieldVector);
-
-	for (int i = 0; i < RUNS_PER_THREAD; i++) {
-		cycleAndMeasureTime(i, fieldVector, nextFieldVector, fieldVectorLength);
-		swapArray(&fieldVector, &nextFieldVector);
-		printField(fieldVector);
-	}
-}
-
-void initMPI(int argc, char** argv) {
+int main(int argc, char **argv) {
 	MPI_Init(&argc, &argv);
 	int dims = { CHUNKS_X };
 	int periodic = { 1 };
@@ -259,23 +117,80 @@ void initMPI(int argc, char** argv) {
 			"I will calculate the area: xstart=%d, xend=%d, ystart=%d, yend=%d\n",
 			xstart, xend, ystart, yend);
 
+	int w = xend - xstart;
+	int h = yend - ystart;
+	MPI_Datatype borderRightRec;
+	MPI_Type_create_subarray(2, (int[] ) { h + 2, w + 2 },
+			(int[] ) { h + 2, 1 }, (int[] ) { 0, w + 1 }, MPI_ORDER_C,
+							MPI_CHAR, &borderRightRec);
+	MPI_Type_commit(&borderRightRec);
+
+	MPI_Datatype borderLeftRec;
+	MPI_Type_create_subarray(2, (int[] ) { h + 2, w + 2 },
+			(int[] ) { h + 2, 1 }, (int[] ) { 0, 0 }, MPI_ORDER_C,
+							MPI_CHAR, &borderLeftRec);
+	MPI_Type_commit(&borderLeftRec);
+
+	MPI_Datatype borderRightSend;
+	MPI_Type_create_subarray(2, (int[] ) { h + 2, w + 2 },
+			(int[] ) { h + 2, 1 }, (int[] ) { 0, w }, MPI_ORDER_C,
+							MPI_CHAR, &borderRightSend);
+	MPI_Type_commit(&borderRightSend);
+
+	MPI_Datatype borderLeftSend;
+	MPI_Type_create_subarray(2, (int[] ) { h + 2, w + 2 },
+			(int[] ) { h + 2, 1 }, (int[] ) { 0, 1 }, MPI_ORDER_C,
+							MPI_CHAR, &borderLeftSend);
+	MPI_Type_commit(&borderLeftSend);
+
 	bool *field = calloc((xend - xstart + 2) * (yend - ystart + 2),
 			sizeof(bool));
-	writeVTK(0, rank, field, "", xstart, xend, ystart, yend);
+	bool *prev = calloc((xend - xstart + 2) * (yend - ystart + 2),
+			sizeof(bool));
 
-}
+	if (rank == 0) {
+		prev[1 * (w + 2) + 2] = true;
+		prev[2 * (w + 2) + 3] = true;
+		prev[3 * (w + 2) + 1] = true;
+		prev[3 * (w + 2) + 2] = true;
+		prev[3 * (w + 2) + 3] = true;
+	}
 
-int main(int argc, char **argv) {
-	int fieldVectorLength = (sizeX * sizeY / INT_SIZE) + 1;
-	bitvector *fieldVector = calloc(fieldVectorLength, sizeof(bitvector));
-	bitvector *nextFieldVector = calloc(fieldVectorLength, sizeof(bitvector));
+	writeVTK(0, rank, prev, "gol", xstart, xend, ystart, yend);
 
-	initMPI(argc, argv);
-//	cycleAndMeasureTimeWithPrint(fieldVectorLength, fieldVector,
-//			nextFieldVector);
+	for (int cycle = 1; cycle < RUNS_PER_THREAD; cycle++) {
 
-	free(fieldVector);
-	free(nextFieldVector);
+		// calculate
+		evolve(prev, field, w, h);
+
+		// output
+		writeVTK(cycle, rank, field, "gol", xstart, xend, ystart, yend);
+
+		// exchange
+		// top -> bottom
+		for (int i = 1; i < w + 1; i++) {
+			field[(h + 1) * (w + 2) + i] = field[w + 2 + i];
+		}
+
+		// bottom -> top
+		for (int i = 1; i < w + 1; i++) {
+			field[i] = field[h * (w + 2) + i];
+		}
+
+		MPI_Request requests[4];
+		MPI_Isend(field, 1, borderRightSend, rank_right, 42, communicator,
+				&requests[0]);
+		MPI_Isend(field, 1, borderLeftSend, rank_left, 42, communicator,
+				&requests[1]);
+		MPI_Irecv(field, 1, borderRightRec, rank_right, 42, communicator,
+				&requests[2]);
+		MPI_Irecv(field, 1, borderLeftRec, rank_left, 42, communicator,
+				&requests[3]);
+		MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+
+		swap_vector(&field, &prev);
+	}
+
 	MPI_Finalize();
 	return EXIT_SUCCESS;
 }
